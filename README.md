@@ -203,3 +203,7 @@ to `OrganizeOperations.all`. The picker, preview table and executor need no chan
 - **Undo last run** — the executor already returns the exact list of moves it made.
 - More operations: RAW + JPEG pairing, renaming by capture time, flattening a day back out.
 - A notarised release build.
+
+## License
+
+[MIT](LICENSE)
