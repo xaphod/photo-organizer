@@ -170,8 +170,10 @@ Design notes:
 - **Metadata without decoding.** `ImageMetadataReader` makes one ImageIO pass per file with
   caching off (a few milliseconds per 40 MP HEIF). The film simulation comes from ImageIO's
   `{PictureStyle}` dictionary, whose codes match ExifTool's Fujifilm `FilmMode` / `Saturation`
-  tables. Table thumbnails use the thumbnail embedded in the file; the 512 px preview decodes the
-  image on demand and is cached.
+  tables. Table thumbnails use the thumbnail embedded in the file, fetched untransformed (ImageIO
+  mangles rotated HEIF thumbnails), with the letterbox bars Fujifilm bakes into JPEG thumbnails
+  trimmed (`ThumbnailLetterbox`) and the EXIF orientation applied in-app; the 512 px preview
+  decodes the image on demand and is cached.
 - **Planning is pure.** `plan(files:in:options:)` returns a `PlanResult` and never touches disk, so
   toggling bracket detection re-plans instantly from metadata already in memory, and the same code
   is exercised by tests without fixtures on disk.
