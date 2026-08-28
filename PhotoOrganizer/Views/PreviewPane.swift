@@ -66,24 +66,25 @@ struct PreviewPane: View {
 				Text(change.name)
 					.help(change.file.url.path)
 			}
+			.width(min: 110, ideal: 150, max: 260)
 			TableColumn("Date taken", value: \.dateDisplay) { change in
 				Text(change.dateDisplay.isEmpty ? "—" : change.dateDisplay)
 					.monospacedDigit()
 					.foregroundStyle(change.dateDisplay.isEmpty ? .secondary : .primary)
 					.help("Date and time from the photo's EXIF data, in the camera's local time")
 			}
-			.width(min: 150, ideal: 160)
+			.width(min: 150, ideal: 160, max: 190)
 			if model.detectBracketSets {
 				TableColumn("Set", value: \.setIndex) { change in
 					setCell(change)
 				}
-				.width(min: 64, ideal: 76)
+				.width(min: 64, ideal: 76, max: 96)
 				TableColumn("Film sim") { change in
 					Text(change.filmSimulation ?? "—")
 						.foregroundStyle(change.filmSimulation == nil ? .secondary : .primary)
 						.help("Film simulation recorded by the camera (best effort)")
 				}
-				.width(min: 90, ideal: 120)
+				.width(min: 90, ideal: 120, max: 170)
 			}
 			TableColumn("Destination", value: \.relativeDestination) { change in
 				Text(change.relativeDestination.isEmpty ? "—" : change.relativeDestination)
@@ -92,7 +93,7 @@ struct PreviewPane: View {
 			TableColumn("Status", value: \.statusRank) { change in
 				ChangeStatusView(change: change)
 			}
-			.width(min: 130, ideal: 150)
+			.width(min: 130, ideal: 150, max: 170)
 		}
 	}
 

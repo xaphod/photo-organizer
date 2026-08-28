@@ -108,7 +108,7 @@ struct SidebarView: View {
 				)
 			)
 			.disabled(model.isBusy)
-			Text("Photos with the same capture time form a set; the 1st goes to …-set1, the 2nd to …-set2, and so on.")
+			Text("Photos with the same capture time form a set; each member is filed under the date folder in a subfolder named for its film simulation (provia, astia, acros…).")
 				.font(.caption)
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
