@@ -18,6 +18,10 @@ struct PreviewPane: View {
 			}
 			content
 		}
+		.onChange(of: model.detectBracketSets) {
+			// Sets are only verifiable in filename order (1-2-3 top to bottom).
+			sortOrder = [KeyPathComparator(\PlannedChange.name)]
+		}
 	}
 
 	@ViewBuilder
@@ -54,6 +58,10 @@ struct PreviewPane: View {
 
 	private var table: some View {
 		Table(model.changes.sorted(using: sortOrder), sortOrder: $sortOrder) {
+			TableColumn("") { change in
+				ThumbnailView(change: change)
+			}
+			.width(64)
 			TableColumn("File", value: \.name) { change in
 				Text(change.name)
 					.help(change.file.url.path)
@@ -65,6 +73,18 @@ struct PreviewPane: View {
 					.help("Date and time from the photo's EXIF data, in the camera's local time")
 			}
 			.width(min: 150, ideal: 160)
+			if model.detectBracketSets {
+				TableColumn("Set", value: \.setIndex) { change in
+					setCell(change)
+				}
+				.width(min: 64, ideal: 76)
+				TableColumn("Film sim") { change in
+					Text(change.filmSimulation ?? "—")
+						.foregroundStyle(change.filmSimulation == nil ? .secondary : .primary)
+						.help("Film simulation recorded by the camera (best effort)")
+				}
+				.width(min: 90, ideal: 120)
+			}
 			TableColumn("Destination", value: \.relativeDestination) { change in
 				Text(change.relativeDestination.isEmpty ? "—" : change.relativeDestination)
 					.foregroundStyle(change.status == .move ? .primary : .secondary)
@@ -73,6 +93,23 @@ struct PreviewPane: View {
 				ChangeStatusView(change: change)
 			}
 			.width(min: 130, ideal: 150)
+		}
+	}
+
+	@ViewBuilder
+	private func setCell(_ change: PlannedChange) -> some View {
+		switch change.set {
+		case .member:
+			Text(change.setDisplay)
+				.monospacedDigit()
+				.help(change.explanation)
+		case .unassigned:
+			Label("none", systemImage: "exclamationmark.triangle.fill")
+				.foregroundStyle(.orange)
+				.help(change.explanation)
+		case nil:
+			Text("—")
+				.foregroundStyle(.secondary)
 		}
 	}
 

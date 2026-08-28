@@ -16,14 +16,14 @@ struct ExecutionReport: Sendable {
 	/// Every change that was carried out, in order (source → destination). Kept
 	/// in memory so a future "Undo" can reverse the moves.
 	var moved: [PlannedChange] = []
-	/// Names of the date folders this run created.
+	/// Folders this run created, relative to the chosen folder ("2026-07-19", "2026-07-19/acros").
 	var foldersCreated: Set<String> = []
 	var failures: [Failure] = []
 
 	var movedCount: Int { moved.count }
 	/// Number of distinct folders that received files.
 	var folderCount: Int {
-		Set(moved.compactMap(\.destinationFolderName)).count
+		Set(moved.compactMap(\.relativeFolder)).count
 	}
 }
 
@@ -57,12 +57,17 @@ enum ChangeExecutor {
 
 		// Create each destination folder once, up front. If one can't be created,
 		// the moves into it fail individually below with a clear message.
-		let folders = Set(moves.compactMap { $0.destination?.deletingLastPathComponent() })
-		for folder in folders.sorted(by: { $0.path < $1.path }) {
+		var folders: [URL: String] = [:]
+		for move in moves {
+			if let destination = move.destination, let relative = move.relativeFolder {
+				folders[destination.deletingLastPathComponent()] = relative
+			}
+		}
+		for (folder, relative) in folders.sorted(by: { $0.key.path < $1.key.path }) {
 			if fileManager.fileExists(atPath: folder.path) { continue }
 			do {
 				try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-				report.foldersCreated.insert(folder.lastPathComponent)
+				report.foldersCreated.insert(relative)
 			} catch {
 				continue
 			}

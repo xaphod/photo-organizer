@@ -71,6 +71,46 @@ struct ChangeExecutorTests {
 		#expect(!FileManager.default.fileExists(atPath: dir.file("DSCF0001.JPG").path))
 	}
 
+	@Test func filesBracketedSetsIntoSetFolders() async throws {
+		let dir = try TempDir()
+		for number in 1...3 {
+			try Fixtures.makeImage(at: dir.file("DSCF000\(number).HIF"), type: .heic, dateTimeOriginal: "2026:07:19 12:21:42", subsecTimeOriginal: "17")
+		}
+		for number in 4...6 {
+			try Fixtures.makeImage(at: dir.file("DSCF000\(number).HIF"), type: .heic, dateTimeOriginal: "2026:07:19 12:21:53", subsecTimeOriginal: "32")
+		}
+		try Fixtures.makeImage(at: dir.file("DSCF0007.JPG"), type: .jpeg, dateTimeOriginal: "2026:07:19 12:30:00", subsecTimeOriginal: "05")
+
+		let scan = try await FolderScanner.scan(folder: dir.url)
+		let plan = operation.plan(files: scan.files, in: dir.url, options: OrganizeOptions(detectBracketSets: true))
+		#expect(plan.bracketing?.detectedCount == 3)
+		#expect(plan.bracketing?.completeSets == 2)
+
+		let report = await ChangeExecutor.execute(plan.changes)
+
+		#expect(report.movedCount == 7)
+		#expect(report.failures.isEmpty)
+		#expect(report.folderCount == 4)
+		#expect(report.foldersCreated == ["2026-07-19", "2026-07-19/set1", "2026-07-19/set2", "2026-07-19/set3"])
+		#expect(try dir.listing() == [
+			"2026-07-19",
+			"2026-07-19/DSCF0007.JPG",
+			"2026-07-19/set1",
+			"2026-07-19/set1/DSCF0001.HIF",
+			"2026-07-19/set1/DSCF0004.HIF",
+			"2026-07-19/set2",
+			"2026-07-19/set2/DSCF0002.HIF",
+			"2026-07-19/set2/DSCF0005.HIF",
+			"2026-07-19/set3",
+			"2026-07-19/set3/DSCF0003.HIF",
+			"2026-07-19/set3/DSCF0006.HIF",
+		])
+
+		let rescan = try await FolderScanner.scan(folder: dir.url)
+		#expect(rescan.files.isEmpty)
+		#expect(rescan.ignoredSubfolders == 1)
+	}
+
 	@Test func reportsProgressUpToTotal() async throws {
 		let dir = try TempDir()
 		for index in 0..<3 {

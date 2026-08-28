@@ -48,20 +48,22 @@ struct PlannedChange: Identifiable, Hashable, Sendable {
 	/// Where the file would end up. Set for `.move` and `.alreadyExists` (to show where it *would* have gone).
 	let destination: URL?
 	let status: Status
-	/// Destination relative to the chosen folder, e.g. "2026-07-19/DSCF0373.HIF"; "" when there is none.
+	/// Bracket-set position, when set detection was on and the file is a dated image.
+	let set: SetAssignment?
+	/// Destination folder relative to the chosen folder, e.g. "2026-07-19" or "2026-07-19/acros"; nil when there is none.
+	let relativeFolder: String?
+	/// Destination relative to the chosen folder, e.g. "2026-07-19/acros/DSCF0373.HIF"; "" when there is none.
 	let relativeDestination: String
 	/// "YYYY-MM-DD HH:mm:ss" or "" when the file has no date. Precomputed so table rows do no formatting.
 	let dateDisplay: String
 
-	init(file: PhotoFile, destination: URL? = nil, status: Status) {
+	init(file: PhotoFile, destination: URL? = nil, status: Status, set: SetAssignment? = nil, relativeFolder: String? = nil) {
 		self.file = file
 		self.destination = destination
 		self.status = status
-		if let destination {
-			relativeDestination = destination.deletingLastPathComponent().lastPathComponent + "/" + destination.lastPathComponent
-		} else {
-			relativeDestination = ""
-		}
+		self.set = set
+		self.relativeFolder = relativeFolder
+		relativeDestination = relativeFolder.map { $0 + "/" + file.name } ?? ""
 		dateDisplay = file.exifDate?.displayString ?? ""
 	}
 
@@ -69,20 +71,44 @@ struct PlannedChange: Identifiable, Hashable, Sendable {
 	var name: String { file.name }
 	var statusRank: Int { status.rank }
 
-	/// The "YYYY-MM-DD" folder this change targets, if any.
-	var destinationFolderName: String? {
-		destination?.deletingLastPathComponent().lastPathComponent
+	/// 1-based position in its set, or 0 (sort key for the Set column).
+	var setIndex: Int {
+		if case .member(let index, _, _) = set { index } else { 0 }
 	}
+
+	/// "1 of 3", "none" (not in a complete set), or "".
+	var setDisplay: String {
+		switch set {
+		case .member(let index, let count, _): "\(index) of \(count)"
+		case .unassigned: "none"
+		case nil: ""
+		}
+	}
+
+	/// Folder suffix chosen for this set member ("provia", "set2"), if any.
+	var setLabel: String? {
+		if case .member(_, _, let label) = set { label } else { nil }
+	}
+
+	/// Friendly film-simulation name, when known.
+	var filmSimulation: String? { file.filmSimulation?.displayName }
 
 	/// Full explanation for a tooltip.
 	var explanation: String {
 		switch status {
 		case .move:
-			"Will move to \(relativeDestination)"
+			switch set {
+			case .member(let index, let count, _):
+				"Will move to \(relativeDestination) — photo \(index) of \(count) in its set\(filmSimulation.map { " (\($0))" } ?? "")"
+			case .unassigned(let expected):
+				"Not part of a complete set\(expected.map { " of \($0) photos" } ?? "") sharing one capture time — will be filed by date only, into \(relativeDestination)"
+			case nil:
+				"Will move to \(relativeDestination)"
+			}
 		case .alreadyInPlace:
 			"Already inside a folder named for its date — nothing to do"
 		case .alreadyExists:
-			"Skipped: a file named \(name) already exists in \(destinationFolderName ?? "the destination folder")"
+			"Skipped: a file named \(name) already exists in \(relativeFolder ?? "the destination folder")"
 		case .noDate:
 			"Skipped: no EXIF date taken could be read from this file"
 		case .notAnImage:

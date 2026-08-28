@@ -19,9 +19,10 @@ struct SidebarView: View {
 				}
 
 				operationPicker
+				bracketingSection
 
-				if !model.perFolderCounts.isEmpty {
-					folderCounts
+				if !model.folderSummaries.isEmpty {
+					folderList
 				}
 			}
 			.padding(12)
@@ -95,14 +96,57 @@ struct SidebarView: View {
 		}
 	}
 
-	private var folderCounts: some View {
+	private var bracketingSection: some View {
+		VStack(alignment: .leading, spacing: 6) {
+			Text("Film simulation bracketing")
+				.font(.headline)
+			Toggle(
+				"Detect bracketed sets",
+				isOn: Binding(
+					get: { model.detectBracketSets },
+					set: { model.setDetectBracketSets($0) }
+				)
+			)
+			.disabled(model.isBusy)
+			Text("Photos with the same capture time form a set; the 1st goes to …-set1, the 2nd to …-set2, and so on.")
+				.font(.caption)
+				.foregroundStyle(.secondary)
+				.fixedSize(horizontal: false, vertical: true)
+			if model.detectBracketSets, model.phase == .ready {
+				if let count = model.detectedCount {
+					Text("Detected: \(count) per press, \(model.completeSets) complete \(model.completeSets == 1 ? "set" : "sets")")
+						.font(.caption)
+				} else {
+					Text("No bracketed sets detected")
+						.font(.caption)
+				}
+				if model.unassignedCount > 0 {
+					Label("\(model.unassignedCount) \(model.unassignedCount == 1 ? "photo" : "photos") not in a set → filed by date", systemImage: "exclamationmark.triangle.fill")
+						.font(.caption)
+						.foregroundStyle(.orange)
+						.fixedSize(horizontal: false, vertical: true)
+				}
+			}
+		}
+	}
+
+	private var folderList: some View {
 		VStack(alignment: .leading, spacing: 4) {
 			Text("Folders")
 				.font(.headline)
-			ForEach(model.perFolderCounts) { item in
-				HStack {
+			ForEach(model.folderSummaries) { item in
+				HStack(spacing: 6) {
 					Text(item.folder)
 						.monospacedDigit()
+					if item.isMixed {
+						Text("mixed")
+							.foregroundStyle(.orange)
+							.help("This set folder would receive several film simulations: " + item.filmSimulations.joined(separator: ", "))
+					} else if let simulation = item.filmSimulation {
+						Text(simulation)
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+					}
 					Spacer()
 					Text("\(item.count)")
 						.monospacedDigit()

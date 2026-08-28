@@ -44,23 +44,41 @@ enum Fixtures {
 		case context, destination, finalize
 	}
 
-	/// Writes a tiny 4×4 image of `type` (JPEG or HEIC) with the given EXIF DateTimeOriginal.
-	static func makeImage(at url: URL, type: UTType, dateTimeOriginal: String?) throws {
+	/// Writes a tiny image of `type` (JPEG or HEIC) with the given EXIF fields.
+	static func makeImage(
+		at url: URL,
+		type: UTType,
+		dateTimeOriginal: String?,
+		subsecTimeOriginal: String? = nil,
+		orientation: Int? = nil,
+		width: Int = 4,
+		height: Int = 4
+	) throws {
 		let colorSpace = CGColorSpaceCreateDeviceRGB()
 		guard let context = CGContext(
-			data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+			data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
 			space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
 		) else { throw FixtureError.context }
 		context.setFillColor(CGColor(red: 1, green: 0.5, blue: 0, alpha: 1))
-		context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+		context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
 		guard let image = context.makeImage(),
 			  let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil)
 		else { throw FixtureError.destination }
 
 		var properties: [CFString: Any] = [:]
+		var exif: [CFString: Any] = [:]
 		if let dateTimeOriginal {
-			properties[kCGImagePropertyExifDictionary] = [kCGImagePropertyExifDateTimeOriginal: dateTimeOriginal]
+			exif[kCGImagePropertyExifDateTimeOriginal] = dateTimeOriginal
+		}
+		if let subsecTimeOriginal {
+			exif[kCGImagePropertyExifSubsecTimeOriginal] = subsecTimeOriginal
+		}
+		if !exif.isEmpty {
+			properties[kCGImagePropertyExifDictionary] = exif
+		}
+		if let orientation {
+			properties[kCGImagePropertyOrientation] = orientation
 		}
 		CGImageDestinationAddImage(destination, image, properties as CFDictionary)
 		guard CGImageDestinationFinalize(destination) else { throw FixtureError.finalize }
@@ -68,5 +86,24 @@ enum Fixtures {
 
 	static func writeText(_ text: String, at url: URL) throws {
 		try Data(text.utf8).write(to: url)
+	}
+
+	/// An in-memory `PhotoFile` (no file on disk) for planner/assigner tests.
+	static func photo(
+		_ url: URL,
+		type: UTType = .jpeg,
+		date: String?,
+		subsecond: String? = nil,
+		filmSimulation: FilmSimulation? = nil
+	) -> PhotoFile {
+		PhotoFile(
+			url: url,
+			contentType: type,
+			metadata: ImageMetadata(
+				dateTaken: date.flatMap(ExifDate.init(exifString:)),
+				subsecond: subsecond,
+				filmSimulation: filmSimulation
+			)
+		)
 	}
 }

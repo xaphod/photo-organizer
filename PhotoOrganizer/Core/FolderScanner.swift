@@ -15,7 +15,7 @@ struct ScanResult: Sendable {
 	var ignoredOther: Int
 }
 
-/// Lists a folder's top-level files and reads each image's EXIF date.
+/// Lists a folder's top-level files and reads each image's metadata.
 enum FolderScanner {
 	private struct Entry: Sendable {
 		let url: URL
@@ -47,17 +47,17 @@ enum FolderScanner {
 		var nextIndex = 0
 		var done = 0
 
-		try await withThrowingTaskGroup(of: (Int, ExifDate?).self) { group in
+		try await withThrowingTaskGroup(of: (Int, ImageMetadata).self) { group in
 			while nextIndex < min(maxInFlight, total) {
 				let index = nextIndex
 				let entry = entries[index]
-				group.addTask { (index, entry.isImage ? ExifDateReader.read(entry.url) : nil) }
+				group.addTask { (index, entry.isImage ? ImageMetadataReader.read(entry.url) : ImageMetadata()) }
 				nextIndex += 1
 			}
-			while let (index, date) = try await group.next() {
+			while let (index, metadata) = try await group.next() {
 				try Task.checkCancellation()
 				let entry = entries[index]
-				files[index] = PhotoFile(url: entry.url, contentType: entry.contentType, exifDate: date)
+				files[index] = PhotoFile(url: entry.url, contentType: entry.contentType, metadata: metadata)
 				done += 1
 				if done % 50 == 0 || done == total {
 					progress(done, total)
@@ -65,7 +65,7 @@ enum FolderScanner {
 				if nextIndex < total {
 					let index = nextIndex
 					let entry = entries[index]
-					group.addTask { (index, entry.isImage ? ExifDateReader.read(entry.url) : nil) }
+					group.addTask { (index, entry.isImage ? ImageMetadataReader.read(entry.url) : ImageMetadata()) }
 					nextIndex += 1
 				}
 			}

@@ -20,9 +20,15 @@ final class OrganizerModel {
 		case failed(String)
 	}
 
-	struct FolderCount: Identifiable {
+	/// One destination folder in the sidebar list.
+	struct FolderSummary: Identifiable {
 		let folder: String
 		let count: Int
+		/// Dominant film simulation — only reported for "setN" fallback folders, where it should be uniform.
+		let filmSimulation: String?
+		/// True if a set folder would receive more than one film simulation (a sign the sets are misaligned).
+		let isMixed: Bool
+		let filmSimulations: [String]
 		var id: String { folder }
 	}
 
@@ -35,6 +41,12 @@ final class OrganizerModel {
 	private(set) var ignoredSubfolders = 0
 	private(set) var changes: [PlannedChange] = []
 	private(set) var lastReport: ExecutionReport?
+	/// Bracket-set detection from the last plan (nil when detection is off).
+	private(set) var bracketing: BracketAssignment?
+	/// Whether "Move into date folders" files bracketed sets into "-setN" folders.
+	private(set) var detectBracketSets: Bool
+
+	private static let detectBracketSetsKey = "bracketing.enabled"
 
 	private static let logger = Logger(subsystem: "com.solodigitalis.PhotoOrganizer", category: "organizer")
 
@@ -45,6 +57,7 @@ final class OrganizerModel {
 
 	init() {
 		selectedOperationID = OrganizeOperations.all.first?.id ?? ""
+		detectBracketSets = UserDefaults.standard.bool(forKey: Self.detectBracketSetsKey)
 	}
 
 	// MARK: Derived state
@@ -66,27 +79,55 @@ final class OrganizerModel {
 
 	var skippedCount: Int { changes.count - moveCount }
 
-	/// Number of files that will move, per destination folder, sorted by folder name.
-	var perFolderCounts: [FolderCount] {
+	var options: OrganizeOptions { OrganizeOptions(detectBracketSets: detectBracketSets) }
+
+	/// Detected photos per shutter press (nil if detection is off or nothing was detected).
+	var detectedCount: Int? { bracketing?.detectedCount }
+	var completeSets: Int { bracketing?.completeSets ?? 0 }
+	/// Dated images that are not part of a complete set (filed by date only).
+	var unassignedCount: Int { bracketing?.unassignedCount ?? 0 }
+
+	/// Files that will move, per destination folder, sorted by folder name.
+	var folderSummaries: [FolderSummary] {
 		var counts: [String: Int] = [:]
+		var simulations: [String: [String: Int]] = [:]
 		for change in changes where change.status == .move {
-			if let folder = change.destinationFolderName {
-				counts[folder, default: 0] += 1
+			guard let folder = change.relativeFolder else { continue }
+			counts[folder, default: 0] += 1
+			if let simulation = change.filmSimulation {
+				simulations[folder, default: [:]][simulation, default: 0] += 1
 			}
 		}
-		return counts.keys.sorted().map { FolderCount(folder: $0, count: counts[$0]!) }
+		return counts.keys.sorted().map { folder in
+			let isSetFolder = OrganizedFolderName.setIndex(of: (folder as NSString).lastPathComponent) != nil
+			let histogram = simulations[folder] ?? [:]
+			let dominant = histogram.max { $0.value < $1.value }?.key
+			return FolderSummary(
+				folder: folder,
+				count: counts[folder]!,
+				filmSimulation: isSetFolder ? dominant : nil,
+				isMixed: isSetFolder && histogram.count > 1,
+				filmSimulations: histogram.keys.sorted()
+			)
+		}
 	}
 
-	var destinationFolderCount: Int { perFolderCounts.count }
+	var destinationFolderCount: Int {
+		Set(changes.lazy.filter { $0.status == .move }.compactMap(\.relativeFolder)).count
+	}
 
-	/// "312 files · 300 will move into 2 folders · 12 skipped"
+	/// "312 files · 300 will move into 2 folders · 12 skipped · 4 not in a set"
 	var summaryText: String {
 		let folders = destinationFolderCount
-		return [
+		var parts = [
 			"\(changes.count) \(changes.count == 1 ? "file" : "files")",
 			"\(moveCount) will move into \(folders) \(folders == 1 ? "folder" : "folders")",
 			"\(skippedCount) skipped",
-		].joined(separator: " · ")
+		]
+		if detectBracketSets, unassignedCount > 0 {
+			parts.append("\(unassignedCount) not in a set")
+		}
+		return parts.joined(separator: " · ")
 	}
 
 	// MARK: Actions
@@ -103,6 +144,7 @@ final class OrganizerModel {
 		folderURL = folder
 		folderWarning = Self.warning(for: folder)
 		lastReport = nil
+		ThumbnailCache.shared.removeAll()
 		Self.logger.notice("Folder set: \(folder.path, privacy: .public)")
 		rescan()
 	}
@@ -116,6 +158,7 @@ final class OrganizerModel {
 		phase = .scanning(done: 0, total: 0)
 		files = []
 		changes = []
+		bracketing = nil
 
 		scanTask = Task {
 			do {
@@ -130,7 +173,7 @@ final class OrganizerModel {
 				self.ignoredSubfolders = result.ignoredSubfolders
 				self.replan()
 				self.phase = .ready
-				Self.logger.notice("Scan complete: \(result.files.count) files, \(result.ignoredSubfolders) subfolders ignored; \(self.summaryText, privacy: .public)")
+				Self.logger.notice("Scan complete: \(result.files.count) files, \(result.ignoredSubfolders) subfolders ignored; \(self.summaryText, privacy: .public); bracket detection \(self.detectBracketSets ? "on, detected \(self.detectedCount.map(String.init) ?? "none"), \(self.completeSets) complete sets" : "off", privacy: .public)")
 			} catch is CancellationError {
 				// Superseded by a newer scan; its results will land instead.
 			} catch {
@@ -144,6 +187,14 @@ final class OrganizerModel {
 	func selectOperation(_ id: String) {
 		guard id != selectedOperationID, OrganizeOperations.operation(withID: id) != nil else { return }
 		selectedOperationID = id
+		if phase == .ready { replan() }
+	}
+
+	/// Turns bracket-set detection on or off; re-plans from the metadata already in memory.
+	func setDetectBracketSets(_ enabled: Bool) {
+		guard enabled != detectBracketSets, !isBusy else { return }
+		detectBracketSets = enabled
+		UserDefaults.standard.set(enabled, forKey: Self.detectBracketSetsKey)
 		if phase == .ready { replan() }
 	}
 
@@ -180,9 +231,11 @@ final class OrganizerModel {
 		folderWarning = nil
 		files = []
 		changes = []
+		bracketing = nil
 		ignoredSubfolders = 0
 		lastReport = nil
 		phase = .empty
+		ThumbnailCache.shared.removeAll()
 	}
 
 	// MARK: Helpers
@@ -190,9 +243,12 @@ final class OrganizerModel {
 	private func replan() {
 		guard let folder = folderURL, let operation = selectedOperation else {
 			changes = []
+			bracketing = nil
 			return
 		}
-		changes = operation.plan(files: files, in: folder)
+		let result = operation.plan(files: files, in: folder, options: options)
+		changes = result.changes
+		bracketing = result.bracketing
 	}
 
 	private static func warning(for folder: URL) -> String? {
